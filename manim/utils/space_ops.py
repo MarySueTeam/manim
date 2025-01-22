@@ -2,6 +2,35 @@
 
 from __future__ import annotations
 
+import itertools as it
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Callable
+
+import numpy as np
+from mapbox_earcut import triangulate_float32 as earcut
+from scipy.spatial.transform import Rotation
+
+from manim.constants import DOWN, OUT, PI, RIGHT, TAU, UP
+from manim.utils.iterables import adjacent_pairs
+
+if TYPE_CHECKING:
+    import numpy.typing as npt
+
+    from manim.typing import (
+        ManimFloat,
+        MatrixMN,
+        Point2D_Array,
+        Point3D,
+        Point3DLike,
+        Point3DLike_Array,
+        PointND,
+        PointNDLike_Array,
+        Vector2D,
+        Vector2D_Array,
+        Vector3D,
+        Vector3D_Array,
+    )
+
 __all__ = [
     "quaternion_mult",
     "quaternion_from_angle_axis",
@@ -36,21 +65,19 @@ __all__ = [
 ]
 
 
-import itertools as it
-import math
-from typing import Sequence
-
-import numpy as np
-from mapbox_earcut import triangulate_float32 as earcut
-from scipy.spatial.transform import Rotation
-
-from .. import config
-from ..constants import DOWN, OUT, PI, RIGHT, TAU, UP, RendererType
-from ..utils.iterables import adjacent_pairs
-
-
 def norm_squared(v: float) -> float:
-    return np.dot(v, v)
+    val: float = np.dot(v, v)
+    return val
+
+
+def cross(v1: Vector3D, v2: Vector3D) -> Vector3D:
+    return np.array(
+        [
+            v1[1] * v2[2] - v1[2] * v2[1],
+            v1[2] * v2[0] - v1[0] * v2[2],
+            v1[0] * v2[1] - v1[1] * v2[0],
+        ]
+    )
 
 
 # Quaternions
@@ -69,34 +96,19 @@ def quaternion_mult(
     Union[np.ndarray, List[Union[float, np.ndarray]]]
         Returns a list of product of two quaternions.
     """
-    if config.renderer == RendererType.OPENGL:
-        if len(quats) == 0:
-            return [1, 0, 0, 0]
-        result = quats[0]
-        for next_quat in quats[1:]:
-            w1, x1, y1, z1 = result
-            w2, x2, y2, z2 = next_quat
-            result = [
-                w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-                w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-                w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2,
-                w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2,
-            ]
-        return result
-    elif config.renderer == RendererType.CAIRO:
-        q1 = quats[0]
-        q2 = quats[1]
-
-        w1, x1, y1, z1 = q1
-        w2, x2, y2, z2 = q2
-        return np.array(
-            [
-                w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
-                w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
-                w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2,
-                w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2,
-            ],
-        )
+    if len(quats) == 0:
+        return [1, 0, 0, 0]
+    result = quats[0]
+    for next_quat in quats[1:]:
+        w1, x1, y1, z1 = result
+        w2, x2, y2, z2 = next_quat
+        result = [
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2,
+            w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2,
+        ]
+    return result
 
 
 def quaternion_from_angle_axis(
@@ -119,15 +131,12 @@ def quaternion_from_angle_axis(
 
     Returns
     -------
-    List[float]
+    list[float]
         Gives back a quaternion from the angle and axis
     """
-    if config.renderer == RendererType.OPENGL:
-        if not axis_normalized:
-            axis = normalize(axis)
-        return [math.cos(angle / 2), *(math.sin(angle / 2) * axis)]
-    elif config.renderer == RendererType.CAIRO:
-        return np.append(np.cos(angle / 2), np.sin(angle / 2) * normalize(axis))
+    if not axis_normalized:
+        axis = normalize(axis)
+    return [np.cos(angle / 2), *(np.sin(angle / 2) * axis)]
 
 
 def angle_axis_from_quaternion(quaternion: Sequence[float]) -> Sequence[float]:
@@ -192,7 +201,6 @@ def rotate_vector(
     ValueError
         If vector is not of dimension 2 or 3.
     """
-
     if len(vector) > 3:
         raise ValueError("Vector must have the correct dimensions.")
     if len(vector) == 2:
@@ -200,7 +208,7 @@ def rotate_vector(
     return rotation_matrix(angle, axis) @ vector
 
 
-def thick_diagonal(dim: int, thickness=2) -> np.ndarray:
+def thick_diagonal(dim: int, thickness: int = 2) -> MatrixMN:
     row_indices = np.arange(dim).repeat(dim).reshape((dim, dim))
     col_indices = np.transpose(row_indices)
     return (np.abs(row_indices - col_indices) < thickness).astype("uint8")
@@ -248,9 +256,7 @@ def rotation_matrix(
     axis: np.ndarray,
     homogeneous: bool = False,
 ) -> np.ndarray:
-    """
-    Rotation in R^3 about a specified axis of rotation.
-    """
+    """Rotation in R^3 about a specified axis of rotation."""
     inhomogeneous_rotation_matrix = Rotation.from_rotvec(
         angle * normalize(np.array(axis))
     ).as_matrix()
@@ -275,7 +281,7 @@ def rotation_about_z(angle: float) -> np.ndarray:
     np.ndarray
         Gives back the rotated matrix.
     """
-    c, s = math.cos(angle), math.sin(angle)
+    c, s = np.cos(angle), np.sin(angle)
     return np.array(
         [
             [c, -s, 0],
@@ -291,12 +297,12 @@ def z_to_vector(vector: np.ndarray) -> np.ndarray:
     (normalized) vector provided as an argument
     """
     axis_z = normalize(vector)
-    axis_y = normalize(np.cross(axis_z, RIGHT))
-    axis_x = np.cross(axis_y, axis_z)
+    axis_y = normalize(cross(axis_z, RIGHT))
+    axis_x = cross(axis_y, axis_z)
     if np.linalg.norm(axis_y) == 0:
         # the vector passed just so happened to be in the x direction.
-        axis_x = normalize(np.cross(UP, axis_z))
-        axis_y = -np.cross(axis_x, axis_z)
+        axis_x = normalize(cross(UP, axis_z))
+        axis_y = -cross(axis_x, axis_z)
 
     return np.array([axis_x, axis_y, axis_z]).T
 
@@ -320,8 +326,10 @@ def angle_of_vector(vector: Sequence[float] | np.ndarray) -> float:
         c_vec = np.empty(vector.shape[1], dtype=np.complex128)
         c_vec.real = vector[0]
         c_vec.imag = vector[1]
-        return np.angle(c_vec)
-    return np.angle(complex(*vector[:2]))
+        val1: float = np.angle(c_vec)
+        return val1
+    val: float = np.angle(complex(*vector[:2]))
+    return val
 
 
 def angle_between_vectors(v1: np.ndarray, v2: np.ndarray) -> float:
@@ -340,14 +348,17 @@ def angle_between_vectors(v1: np.ndarray, v2: np.ndarray) -> float:
     float
         The angle between the vectors.
     """
-
-    return 2 * np.arctan2(
+    val: float = 2 * np.arctan2(
         np.linalg.norm(normalize(v1) - normalize(v2)),
         np.linalg.norm(normalize(v1) + normalize(v2)),
     )
 
+    return val
 
-def normalize(vect: np.ndarray | tuple[float], fall_back=None) -> np.ndarray:
+
+def normalize(
+    vect: np.ndarray | tuple[float], fall_back: np.ndarray | None = None
+) -> np.ndarray:
     norm = np.linalg.norm(vect)
     if norm > 0:
         return np.array(vect) / norm
@@ -377,7 +388,7 @@ def normalize_along_axis(array: np.ndarray, axis: np.ndarray) -> np.ndarray:
     return array
 
 
-def get_unit_normal(v1: np.ndarray, v2: np.ndarray, tol: float = 1e-6) -> np.ndarray:
+def get_unit_normal(v1: Vector3D, v2: Vector3D, tol: float = 1e-6) -> Vector3D:
     """Gets the unit normal of the vectors.
 
     Parameters
@@ -394,16 +405,37 @@ def get_unit_normal(v1: np.ndarray, v2: np.ndarray, tol: float = 1e-6) -> np.nda
     np.ndarray
         The normal of the two vectors.
     """
-    v1, v2 = (normalize(i) for i in (v1, v2))
-    cp = np.cross(v1, v2)
-    cp_norm = np.linalg.norm(cp)
-    if cp_norm < tol:
-        # Vectors align, so find a normal to them in the plane shared with the z-axis
-        cp = np.cross(np.cross(v1, OUT), v1)
-        cp_norm = np.linalg.norm(cp)
-        if cp_norm < tol:
+    # Instead of normalizing v1 and v2, just divide by the greatest
+    # of all their absolute components, which is just enough
+    div1, div2 = max(np.abs(v1)), max(np.abs(v2))
+    if div1 == 0.0:
+        if div2 == 0.0:
             return DOWN
-    return normalize(cp)
+        u = v2 / div2
+    elif div2 == 0.0:
+        u = v1 / div1
+    else:
+        # Normal scenario: v1 and v2 are both non-null
+        u1, u2 = v1 / div1, v2 / div2
+        cp = cross(u1, u2)
+        cp_norm = np.sqrt(norm_squared(cp))
+        if cp_norm > tol:
+            return cp / cp_norm
+        # Otherwise, v1 and v2 were aligned
+        u = u1
+
+    # If you are here, you have an "unique", non-zero, unit-ish vector u
+    # If it's also too aligned to the Z axis, just return DOWN
+    if abs(u[0]) < tol and abs(u[1]) < tol:
+        return DOWN
+    # Otherwise rotate u in the plane it shares with the Z axis,
+    # 90° TOWARDS the Z axis. This is done via (u x [0, 0, 1]) x u,
+    # which gives [-xz, -yz, x²+y²] (slightly scaled as well)
+    cp = np.array([-u[0] * u[2], -u[1] * u[2], u[0] * u[0] + u[1] * u[1]])
+    cp_norm = np.sqrt(norm_squared(cp))
+    # Because the norm(u) == 0 case was filtered in the beginning,
+    # there is no need to check if the norm of cp is 0
+    return cp / cp_norm
 
 
 ###
@@ -452,12 +484,8 @@ def regular_vertices(
     start_angle : :class:`float`
         The angle the vertices start at.
     """
-
     if start_angle is None:
-        if n % 2 == 0:
-            start_angle = 0
-        else:
-            start_angle = TAU / 4
+        start_angle = 0 if n % 2 == 0 else TAU / 4
 
     start_vector = rotate_vector(RIGHT * radius, start_angle)
     vertices = compass_directions(n, start_vector)
@@ -473,11 +501,13 @@ def R3_to_complex(point: Sequence[float]) -> np.ndarray:
     return complex(*point[:2])
 
 
-def complex_func_to_R3_func(complex_func):
+def complex_func_to_R3_func(
+    complex_func: Callable[[complex], complex],
+) -> Callable[[Point3DLike], Point3D]:
     return lambda p: complex_to_R3(complex_func(R3_to_complex(p)))
 
 
-def center_of_mass(points: Sequence[float]) -> np.ndarray:
+def center_of_mass(points: PointNDLike_Array) -> PointND:
     """Gets the center of mass of the points in space.
 
     Parameters
@@ -547,8 +577,8 @@ def line_intersection(
         np.pad(np.array(i)[:, :2], ((0, 0), (0, 1)), constant_values=1)
         for i in (line1, line2)
     )
-    line1, line2 = (np.cross(*i) for i in padded)
-    x, y, z = np.cross(line1, line2)
+    line1, line2 = (cross(*i) for i in padded)
+    x, y, z = cross(line1, line2)
 
     if z == 0:
         raise ValueError(
@@ -559,12 +589,12 @@ def line_intersection(
 
 
 def find_intersection(
-    p0s: Sequence[np.ndarray],
-    v0s: Sequence[np.ndarray],
-    p1s: Sequence[np.ndarray],
-    v1s: Sequence[np.ndarray],
+    p0s: Point3DLike_Array,
+    v0s: Vector3D_Array,
+    p1s: Point3DLike_Array,
+    v1s: Vector3D_Array,
     threshold: float = 1e-5,
-) -> Sequence[np.ndarray]:
+) -> list[Point3D]:
     """
     Return the intersection of a line passing through p0 in direction v0
     with one passing through p1 in direction v1 (or array of intersections
@@ -576,7 +606,7 @@ def find_intersection(
     result = []
 
     for p0, v0, p1, v1 in zip(*[p0s, v0s, p1s, v1s]):
-        normal = np.cross(v1, np.cross(v0, v1))
+        normal = cross(v1, cross(v0, v1))
         denom = max(np.dot(v0, normal), threshold)
         result += [p0 + np.dot(p1 - p0, normal) / denom * v0]
     return result
@@ -599,21 +629,22 @@ def get_winding_number(points: Sequence[np.ndarray]) -> float:
     >>> from manim import Square, get_winding_number
     >>> polygon = Square()
     >>> get_winding_number(polygon.get_vertices())
-    1.0
-    >>> polygon.shift(2*UP)
+    np.float64(1.0)
+    >>> polygon.shift(2 * UP)
     Square
     >>> get_winding_number(polygon.get_vertices())
-    0.0
+    np.float64(0.0)
     """
-    total_angle = 0
+    total_angle: float = 0
     for p1, p2 in adjacent_pairs(points):
         d_angle = angle_of_vector(p2) - angle_of_vector(p1)
         d_angle = ((d_angle + PI) % TAU) - PI
         total_angle += d_angle
-    return total_angle / TAU
+    val: float = total_angle / TAU
+    return val
 
 
-def shoelace(x_y: np.ndarray) -> float:
+def shoelace(x_y: Point2D_Array) -> float:
     """2D implementation of the shoelace formula.
 
     Returns
@@ -623,10 +654,11 @@ def shoelace(x_y: np.ndarray) -> float:
     """
     x = x_y[:, 0]
     y = x_y[:, 1]
-    return np.trapz(y, x)
+    val: float = np.trapz(y, x)
+    return val
 
 
-def shoelace_direction(x_y: np.ndarray) -> str:
+def shoelace_direction(x_y: Point2D_Array) -> str:
     """
     Uses the area determined by the shoelace method to determine whether
     the input set of points is directed clockwise or counterclockwise.
@@ -640,7 +672,39 @@ def shoelace_direction(x_y: np.ndarray) -> str:
     return "CW" if area > 0 else "CCW"
 
 
-def cross2d(a, b):
+def cross2d(
+    a: Vector2D | Vector2D_Array,
+    b: Vector2D | Vector2D_Array,
+) -> ManimFloat | npt.NDArray[ManimFloat]:
+    """Compute the determinant(s) of the passed
+    vector (sequences).
+
+    Parameters
+    ----------
+    a
+        A vector or a sequence of vectors.
+    b
+        A vector or a sequence of vectors.
+
+    Returns
+    -------
+    Sequence[float] | float
+        The determinant or sequence of determinants
+        of the first two components of the specified
+        vectors.
+
+    Examples
+    --------
+    .. code-block:: pycon
+
+        >>> cross2d(np.array([1, 2]), np.array([3, 4]))
+        np.int64(-2)
+        >>> cross2d(
+        ...     np.array([[1, 2, 0], [1, 0, 0]]),
+        ...     np.array([[3, 4, 0], [0, 1, 0]]),
+        ... )
+        array([-2,  1])
+    """
     if len(a.shape) == 2:
         return a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
     else:
@@ -702,12 +766,17 @@ def earclip_triangulation(verts: np.ndarray, ring_ends: list) -> list:
 
         # Move the ring which j belongs to from the
         # attached list to the detached list
-        new_ring = next(filter(lambda ring: ring[0] <= j < ring[-1], detached_rings))
-        detached_rings.remove(new_ring)
-        attached_rings.append(new_ring)
+        new_ring = next(
+            (ring for ring in detached_rings if ring[0] <= j < ring[-1]), None
+        )
+        if new_ring is not None:
+            detached_rings.remove(new_ring)
+            attached_rings.append(new_ring)
+        else:
+            raise Exception("Could not find a ring to attach")
 
     # Setup linked list
-    after = []
+    after: list[int] = []
     end0 = 0
     for end1 in ring_ends:
         after.extend(range(end0 + 1, end1))
@@ -778,7 +847,7 @@ def spherical_to_cartesian(spherical: Sequence[float]) -> np.ndarray:
 
 def perpendicular_bisector(
     line: Sequence[np.ndarray],
-    norm_vector=OUT,
+    norm_vector: Vector3D = OUT,
 ) -> Sequence[np.ndarray]:
     """Returns a list of two points that correspond
     to the ends of the perpendicular bisector of the
@@ -801,6 +870,6 @@ def perpendicular_bisector(
     """
     p1 = line[0]
     p2 = line[1]
-    direction = np.cross(p1 - p2, norm_vector)
+    direction = cross(p1 - p2, norm_vector)
     m = midpoint(p1, p2)
     return [m + direction, m - direction]

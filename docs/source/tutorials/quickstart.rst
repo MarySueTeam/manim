@@ -3,12 +3,22 @@ Quickstart
 ==========
 
 .. note::
- Before proceeding, install Manim and make sure it's running properly by
- following the steps in :doc:`../installation`. For
- information on using Manim with Jupyterlab or Jupyter notebook, go to the
- documentation for the
- :meth:`IPython magic command <manim.utils.ipython_magic.ManimMagic.manim>`,
- ``%%manim``.
+
+  Before proceeding, install Manim and make sure it is running properly by
+  following the steps in :doc:`../installation`. For
+  information on using Manim with Jupyterlab or Jupyter notebook, go to the
+  documentation for the
+  :meth:`IPython magic command <manim.utils.ipython_magic.ManimMagic.manim>`,
+  ``%%manim``.
+
+
+.. important::
+
+  If you installed Manim in the recommended way, using the
+  Python management tool ``uv``, then you either need to make sure the corresponding
+  virtual environment is activated (follow the instructions printed on running ``uv venv``),
+  or you need to remember to prefix the ``manim`` command in the console with ``uv run``;
+  that is, ``uv run manim ...``.
 
 Overview
 ********
@@ -28,45 +38,38 @@ use to modify ``Mobject``\s.
 Starting a new project
 **********************
 
-Start by creating a new folder. For the purposes of this guide, name the folder ``project``:
+Start by creating a new folder::
 
-.. code-block:: bash
+   manim init project my-project --default
 
-   project/
-
-This folder is the root folder for your project. It contains all the files that Manim needs to function,
+The ``my-project`` folder is the root folder for your project. It contains all the files that Manim needs to function,
 as well as any output that your project produces.
 
 
 Animating a circle
 ******************
 
-1. Open a text editor, such as Notepad. Copy the following code snippet into the window:
+1. Open a text editor, such as Notepad. Open the file ``main.py`` in the ``my-project`` folder.
+   It should look something like this:
 
-.. code-block:: python
+   .. code-block:: python
 
-   from manim import *
+     from manim import *
 
 
-   class CreateCircle(Scene):
-       def construct(self):
-           circle = Circle()  # create a circle
-           circle.set_fill(PINK, opacity=0.5)  # set the color and transparency
-           self.play(Create(circle))  # show the circle on screen
+     class CreateCircle(Scene):
+         def construct(self):
+             circle = Circle()  # create a circle
+             circle.set_fill(PINK, opacity=0.5)  # set the color and transparency
+             self.play(Create(circle))  # show the circle on screen
 
-2. Save the code snippet into your project folder with the name ``scene.py``.
 
-.. code-block:: bash
+2. Open the command line, navigate to your project folder, and execute
+   the following command:
 
-   project/
-   └─scene.py
+   .. code-block:: bash
 
-3. Open the command line, navigate to your project folder, and execute
-the following command:
-
-.. code-block:: bash
-
-   manim -pql scene.py CreateCircle
+     manim -pql main.py CreateCircle
 
 Manim will output rendering information, then create an MP4 file.
 Your default movie player will play the MP4 file, displaying the following animation.
@@ -113,7 +116,7 @@ Now let's look at the next two lines:
 
    class CreateCircle(Scene):
        def construct(self):
-           ...
+           [...]
 
 Most of the time, the code for scripting an animation is entirely contained within
 the :meth:`~.Scene.construct` method of a :class:`.Scene` class.
@@ -268,11 +271,9 @@ and animating those method calls with ``.animate``.
 
            self.play(Create(square))  # show the square on screen
            self.play(square.animate.rotate(PI / 4))  # rotate the square
+           self.play(Transform(square, circle))  # transform the square into a circle
            self.play(
-               ReplacementTransform(square, circle)
-           )  # transform the square into a circle
-           self.play(
-               circle.animate.set_fill(PINK, opacity=0.5)
+               square.animate.set_fill(PINK, opacity=0.5)
            )  # color the circle on screen
 
 2. Render ``AnimatedSquareToCircle`` by running the following command in the command line:
@@ -293,8 +294,8 @@ The following animation will render:
 
            self.play(Create(square))  # show the square on screen
            self.play(square.animate.rotate(PI / 4))  # rotate the square
-           self.play(ReplacementTransform(square, circle))  # transform the square into a circle
-           self.play(circle.animate.set_fill(PINK, opacity=0.5))  # color the circle on screen
+           self.play(Transform(square, circle))  # transform the square into a circle
+           self.play(square.animate.set_fill(PINK, opacity=0.5))  # color the circle on screen
 
 The first ``self.play`` creates the square. The second animates rotating it 45 degrees.
 The third transforms the square into a circle, and the last colors the circle pink.
@@ -342,11 +343,60 @@ the corners of the square appear to contract slightly as they move into the posi
 for the first square to transform into the second one.
 
 In ``DifferentRotations``, the difference between ``.animate``'s interpretation of rotation and the
-``Rotate`` method is far more apparent. The starting and ending states of a ``Mobject`` rotated 360 degrees
+``Rotate`` method is far more apparent. The starting and ending states of a ``Mobject`` rotated 180 degrees
 are the same, so ``.animate`` tries to interpolate two identical objects and the result is the left square.
 If you find that your own usage of ``.animate`` is causing similar unwanted behavior, consider
 using conventional animation methods like the right square, which uses ``Rotate``.
 
+
+``Transform`` vs ``ReplacementTransform``
+*****************************************
+The difference between ``Transform`` and ``ReplacementTransform`` is that ``Transform(mob1, mob2)`` transforms the points
+(as well as other attributes like color) of ``mob1`` into the points/attributes of ``mob2``.
+
+``ReplacementTransform(mob1, mob2)`` on the other hand literally replaces ``mob1`` on the scene with ``mob2``.
+
+The use of ``ReplacementTransform`` or ``Transform`` is mostly up to personal preference. They can be used to accomplish the same effect, as shown below.
+
+.. code-block:: python
+
+    class TwoTransforms(Scene):
+        def transform(self):
+            a = Circle()
+            b = Square()
+            c = Triangle()
+            self.play(Transform(a, b))
+            self.play(Transform(a, c))
+            self.play(FadeOut(a))
+
+        def replacement_transform(self):
+            a = Circle()
+            b = Square()
+            c = Triangle()
+            self.play(ReplacementTransform(a, b))
+            self.play(ReplacementTransform(b, c))
+            self.play(FadeOut(c))
+
+        def construct(self):
+            self.transform()
+            self.wait(0.5)  # wait for 0.5 seconds
+            self.replacement_transform()
+
+
+However, in some cases it is more beneficial to use ``Transform``, like when you are transforming several mobjects one after the other.
+The code below avoids having to keep a reference to the last mobject that was transformed.
+
+.. manim:: TransformCycle
+
+    class TransformCycle(Scene):
+        def construct(self):
+            a = Circle()
+            t1 = Square()
+            t2 = Triangle()
+            self.add(a)
+            self.wait()
+            for t in [t1,t2]:
+                self.play(Transform(a,t))
 
 ************
 You're done!

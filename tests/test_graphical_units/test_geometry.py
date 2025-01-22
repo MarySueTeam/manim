@@ -139,6 +139,20 @@ def test_RoundedRectangle(scene):
 
 
 @frames_comparison
+def test_ConvexHull(scene):
+    a = ConvexHull(
+        *[
+            [-2.7, -0.6, 0],
+            [0.2, -1.7, 0],
+            [1.9, 1.2, 0],
+            [-2.7, 0.9, 0],
+            [1.6, 2.2, 0],
+        ]
+    )
+    scene.add(a)
+
+
+@frames_comparison
 def test_Arrange(scene):
     s1 = Square()
     s2 = Square()
@@ -247,3 +261,44 @@ def test_CurvedArrowCustomTip(scene):
         tip_shape_end=ArrowSquareFilledTip,
     )
     scene.add(arrow, double_arrow)
+
+
+@frames_comparison
+def test_LabeledLine(scene):
+    line = LabeledLine(
+        label="0.5",
+        label_position=0.8,
+        label_config={"font_size": 20},
+        start=LEFT + DOWN,
+        end=RIGHT + UP,
+    )
+    scene.add(line)
+
+
+@frames_comparison
+def test_LabeledArrow(scene):
+    l_arrow = LabeledArrow(
+        label="0.5",
+        label_position=0.5,
+        label_config={"font_size": 15},
+        start=LEFT * 3,
+        end=RIGHT * 3 + UP * 2,
+    )
+    scene.add(l_arrow)
+
+
+@frames_comparison
+def test_LabeledPolygram(scene):
+    polygram = LabeledPolygram(
+        [
+            [-2.5, -2.5, 0],
+            [2.5, -2.5, 0],
+            [2.5, 2.5, 0],
+            [-2.5, 2.5, 0],
+            [-2.5, -2.5, 0],
+        ],
+        [[-1, -1, 0], [0.5, -1, 0], [0.5, 0.5, 0], [-1, 0.5, 0], [-1, -1, 0]],
+        [[1, 1, 0], [2, 1, 0], [2, 2, 0], [1, 2, 0], [1, 1, 0]],
+        label="C",
+    )
+    scene.add(polygram)

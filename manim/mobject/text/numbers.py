@@ -4,7 +4,8 @@ from __future__ import annotations
 
 __all__ = ["DecimalNumber", "Integer", "Variable"]
 
-from typing import Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
@@ -18,9 +19,39 @@ from manim.mobject.value_tracker import ValueTracker
 
 string_to_mob_map = {}
 
+__all__ = ["DecimalNumber", "Integer", "Variable"]
+
 
 class DecimalNumber(VMobject, metaclass=ConvertToOpenGL):
-    """An mobject representing a decimal number.
+    r"""An mobject representing a decimal number.
+
+    Parameters
+    ----------
+    number
+        The numeric value to be displayed. It can later be modified using :meth:`.set_value`.
+    num_decimal_places
+        The number of decimal places after the decimal separator. Values are automatically rounded.
+    mob_class
+        The class for rendering digits and units, by default :class:`.MathTex`.
+    include_sign
+        Set to ``True`` to include a sign for positive numbers and zero.
+    group_with_commas
+        When ``True`` thousands groups are separated by commas for readability.
+    digit_buff_per_font_unit
+        Additional spacing between digits. Scales with font size.
+    show_ellipsis
+        When a number has been truncated by rounding, indicate with an ellipsis (``...``).
+    unit
+        A unit string which can be placed to the right of the numerical values.
+    unit_buff_per_font_unit
+        An additional spacing between the numerical values and the unit. A value
+        of ``unit_buff_per_font_unit=0.003`` gives a decent spacing. Scales with font size.
+    include_background_rectangle
+        Adds a background rectangle to increase contrast on busy scenes.
+    edge_to_fix
+        Assuring right- or left-alignment of the full object.
+    font_size
+        Size of the font.
 
     Examples
     --------
@@ -34,6 +65,8 @@ class DecimalNumber(VMobject, metaclass=ConvertToOpenGL):
                     show_ellipsis=True,
                     num_decimal_places=3,
                     include_sign=True,
+                    unit=r"\text{M-Units}",
+                    unit_buff_per_font_unit=0.003
                 )
                 square = Square().to_edge(UP)
 
@@ -59,6 +92,7 @@ class DecimalNumber(VMobject, metaclass=ConvertToOpenGL):
         digit_buff_per_font_unit: float = 0.001,
         show_ellipsis: bool = False,
         unit: str | None = None,  # Aligned to bottom unless it starts with "^"
+        unit_buff_per_font_unit: float = 0,
         include_background_rectangle: bool = False,
         edge_to_fix: Sequence[float] = LEFT,
         font_size: float = DEFAULT_FONT_SIZE,
@@ -75,6 +109,7 @@ class DecimalNumber(VMobject, metaclass=ConvertToOpenGL):
         self.digit_buff_per_font_unit = digit_buff_per_font_unit
         self.show_ellipsis = show_ellipsis
         self.unit = unit
+        self.unit_buff_per_font_unit = unit_buff_per_font_unit
         self.include_background_rectangle = include_background_rectangle
         self.edge_to_fix = edge_to_fix
         self._font_size = font_size
@@ -89,6 +124,7 @@ class DecimalNumber(VMobject, metaclass=ConvertToOpenGL):
                 "digit_buff_per_font_unit": digit_buff_per_font_unit,
                 "show_ellipsis": show_ellipsis,
                 "unit": unit,
+                "unit_buff_per_font_unit": unit_buff_per_font_unit,
                 "include_background_rectangle": include_background_rectangle,
                 "edge_to_fix": edge_to_fix,
                 "font_size": font_size,
@@ -130,14 +166,24 @@ class DecimalNumber(VMobject, metaclass=ConvertToOpenGL):
                 self._string_to_mob("\\dots", SingleStringMathTex, color=self.color),
             )
 
-        if self.unit is not None:
-            self.unit_sign = self._string_to_mob(self.unit, SingleStringMathTex)
-            self.add(self.unit_sign)
-
         self.arrange(
             buff=self.digit_buff_per_font_unit * self._font_size,
             aligned_edge=DOWN,
         )
+
+        if self.unit is not None:
+            self.unit_sign = self._string_to_mob(self.unit, SingleStringMathTex)
+            self.add(
+                self.unit_sign.next_to(
+                    self,
+                    direction=RIGHT,
+                    buff=(self.unit_buff_per_font_unit + self.digit_buff_per_font_unit)
+                    * self._font_size,
+                    aligned_edge=DOWN,
+                )
+            )
+
+        self.move_to(ORIGIN)
 
         # Handle alignment of parts that should be aligned
         # to the bottom
@@ -165,10 +211,7 @@ class DecimalNumber(VMobject, metaclass=ConvertToOpenGL):
 
         rounded_num = np.round(number, self.num_decimal_places)
         if num_string.startswith("-") and rounded_num == 0:
-            if self.include_sign:
-                num_string = "+" + num_string[1:]
-            else:
-                num_string = num_string[1:]
+            num_string = "+" + num_string[1:] if self.include_sign else num_string[1:]
 
         return num_string
 
@@ -285,7 +328,9 @@ class Integer(DecimalNumber):
                 self.add(Integer(number=6.28).set_x(-1.5).set_y(-2).set_color(YELLOW).scale(1.4))
     """
 
-    def __init__(self, number=0, num_decimal_places=0, **kwargs):
+    def __init__(
+        self, number: float = 0, num_decimal_places: int = 0, **kwargs: Any
+    ) -> None:
         super().__init__(number=number, num_decimal_places=num_decimal_places, **kwargs)
 
     def get_value(self):

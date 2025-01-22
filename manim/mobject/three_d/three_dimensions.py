@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from manim.typing import Point3DLike, Vector3D
+from manim.utils.color import BLUE, BLUE_D, BLUE_E, LIGHT_GREY, WHITE, interpolate_color
+
 __all__ = [
     "ThreeDVMobject",
     "Surface",
@@ -16,9 +19,11 @@ __all__ = [
     "Torus",
 ]
 
-from typing import TYPE_CHECKING
+from collections.abc import Iterable, Sequence
+from typing import Any, Callable
 
 import numpy as np
+from typing_extensions import Self
 
 from manim import config, logger
 from manim.constants import *
@@ -27,15 +32,13 @@ from manim.mobject.geometry.polygram import Square
 from manim.mobject.mobject import *
 from manim.mobject.opengl.opengl_compatibility import ConvertToOpenGL
 from manim.mobject.opengl.opengl_mobject import OpenGLMobject
-from manim.mobject.types.vectorized_mobject import VGroup, VMobject
-from manim.utils.color import *
+from manim.mobject.types.vectorized_mobject import VectorizedPoint, VGroup, VMobject
+from manim.utils.color import (
+    ManimColor,
+    ParsableManimColor,
+)
 from manim.utils.iterables import tuplify
 from manim.utils.space_ops import normalize, perpendicular_bisector, z_to_vector
-
-if TYPE_CHECKING:
-    from typing import *
-
-    from colour import Color
 
 
 class ThreeDVMobject(VMobject, metaclass=ConvertToOpenGL):
@@ -102,24 +105,29 @@ class Surface(VGroup, metaclass=ConvertToOpenGL):
         v_range: Sequence[float] = [0, 1],
         resolution: Sequence[int] = 32,
         surface_piece_config: dict = {},
-        fill_color: Color = BLUE_D,
+        fill_color: ParsableManimColor = BLUE_D,
         fill_opacity: float = 1.0,
-        checkerboard_colors: Sequence[Color] = [BLUE_D, BLUE_E],
-        stroke_color: Color = LIGHT_GREY,
+        checkerboard_colors: Sequence[ParsableManimColor] | bool = [BLUE_D, BLUE_E],
+        stroke_color: ParsableManimColor = LIGHT_GREY,
         stroke_width: float = 0.5,
         should_make_jagged: bool = False,
         pre_function_handle_to_anchor_scale_factor: float = 0.00001,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         self.u_range = u_range
         self.v_range = v_range
         super().__init__(**kwargs)
         self.resolution = resolution
         self.surface_piece_config = surface_piece_config
-        self.fill_color = fill_color
+        self.fill_color: ManimColor = ManimColor(fill_color)
         self.fill_opacity = fill_opacity
-        self.checkerboard_colors = checkerboard_colors
-        self.stroke_color = stroke_color
+        if checkerboard_colors:
+            self.checkerboard_colors: list[ManimColor] = [
+                ManimColor(x) for x in checkerboard_colors
+            ]
+        else:
+            self.checkerboard_colors = checkerboard_colors
+        self.stroke_color: ManimColor = ManimColor(stroke_color)
         self.stroke_width = stroke_width
         self.should_make_jagged = should_make_jagged
         self.pre_function_handle_to_anchor_scale_factor = (
@@ -132,16 +140,9 @@ class Surface(VGroup, metaclass=ConvertToOpenGL):
             self.make_jagged()
 
     def func(self, u: float, v: float) -> np.ndarray:
-        """The z values defining the :class:`Surface` being plotted.
-
-        Returns
-        -------
-        :class:`numpy.array`
-            The z values defining the :class:`Surface`.
-        """
         return self._func(u, v)
 
-    def _get_u_values_and_v_values(self):
+    def _get_u_values_and_v_values(self) -> tuple[np.ndarray, np.ndarray]:
         res = tuplify(self.resolution)
         if len(res) == 1:
             u_res = v_res = res[0]
@@ -153,7 +154,7 @@ class Surface(VGroup, metaclass=ConvertToOpenGL):
 
         return u_values, v_values
 
-    def _setup_in_uv_space(self):
+    def _setup_in_uv_space(self) -> None:
         u_values, v_values = self._get_u_values_and_v_values()
         faces = VGroup()
         for i in range(len(u_values) - 1):
@@ -188,8 +189,8 @@ class Surface(VGroup, metaclass=ConvertToOpenGL):
             self.set_fill_by_checkerboard(*self.checkerboard_colors)
 
     def set_fill_by_checkerboard(
-        self, *colors: Sequence[Color], opacity: float = None
-    ) -> Mobject:
+        self, *colors: Iterable[ParsableManimColor], opacity: float | None = None
+    ) -> Self:
         """Sets the fill_color of each face of :class:`Surface` in
         an alternating pattern.
 
@@ -215,10 +216,10 @@ class Surface(VGroup, metaclass=ConvertToOpenGL):
     def set_fill_by_value(
         self,
         axes: Mobject,
-        colorscale: Union[Iterable[Color], Color] | None = None,
+        colorscale: list[ParsableManimColor] | ParsableManimColor | None = None,
         axis: int = 2,
         **kwargs,
-    ) -> Mobject:
+    ) -> Self:
         """Sets the color of each mobject of a parametric surface to a color
         relative to its axis-value.
 
@@ -372,9 +373,9 @@ class Sphere(Surface):
 
     def __init__(
         self,
-        center: Sequence[float] = ORIGIN,
+        center: Point3DLike = ORIGIN,
         radius: float = 1,
-        resolution: Sequence[int] = None,
+        resolution: Sequence[int] | None = None,
         u_range: Sequence[float] = (0, TAU),
         v_range: Sequence[float] = (0, PI),
         **kwargs,
@@ -449,8 +450,8 @@ class Dot3D(Sphere):
         self,
         point: list | np.ndarray = ORIGIN,
         radius: float = DEFAULT_DOT_RADIUS,
-        color: Color = WHITE,
-        resolution: Sequence[int] = (8, 8),
+        color: ParsableManimColor = WHITE,
+        resolution: tuple[int, int] = (8, 8),
         **kwargs,
     ) -> None:
         super().__init__(center=point, radius=radius, resolution=resolution, **kwargs)
@@ -491,7 +492,7 @@ class Cube(VGroup):
         self,
         side_length: float = 2,
         fill_opacity: float = 0.75,
-        fill_color: Color = BLUE,
+        fill_color: ParsableManimColor = BLUE,
         stroke_width: float = 0,
         **kwargs,
     ) -> None:
@@ -542,7 +543,9 @@ class Prism(Cube):
                 self.add(prismSmall, prismLarge)
     """
 
-    def __init__(self, dimensions: Sequence[int] = [3, 2, 1], **kwargs) -> None:
+    def __init__(
+        self, dimensions: tuple[float, float, float] | np.ndarray = [3, 2, 1], **kwargs
+    ) -> None:
         self.dimensions = dimensions
         super().__init__(**kwargs)
 
@@ -600,8 +603,8 @@ class Cone(Surface):
         v_range: Sequence[float] = [0, TAU],
         u_min: float = 0,
         checkerboard_colors: bool = False,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         self.direction = direction
         self.theta = PI - np.arctan(base_radius / height)
 
@@ -613,17 +616,18 @@ class Cone(Surface):
             **kwargs,
         )
         # used for rotations
+        self.new_height = height
         self._current_theta = 0
         self._current_phi = 0
-
+        self.base_circle = Circle(
+            radius=base_radius,
+            color=self.fill_color,
+            fill_opacity=self.fill_opacity,
+            stroke_width=0,
+        )
+        self.base_circle.shift(height * IN)
+        self._set_start_and_end_attributes(direction)
         if show_base:
-            self.base_circle = Circle(
-                radius=base_radius,
-                color=self.fill_color,
-                fill_opacity=self.fill_opacity,
-                stroke_width=0,
-            )
-            self.base_circle.shift(height * IN)
             self.add(self.base_circle)
 
         self._rotate_to_direction()
@@ -653,14 +657,17 @@ class Cone(Surface):
             ],
         )
 
-    def _rotate_to_direction(self):
+    def get_start(self) -> np.ndarray:
+        return self.start_point.get_center()
+
+    def get_end(self) -> np.ndarray:
+        return self.end_point.get_center()
+
+    def _rotate_to_direction(self) -> None:
         x, y, z = self.direction
 
         r = np.sqrt(x**2 + y**2 + z**2)
-        if r > 0:
-            theta = np.arccos(z / r)
-        else:
-            theta = 0
+        theta = np.arccos(z / r) if r > 0 else 0
 
         if x == 0:
             if y == 0:  # along the z axis
@@ -706,6 +713,15 @@ class Cone(Surface):
             The direction of the apex.
         """
         return self.direction
+
+    def _set_start_and_end_attributes(self, direction):
+        normalized_direction = direction * np.linalg.norm(direction)
+
+        start = self.base_circle.get_center()
+        end = start + normalized_direction * self.new_height
+        self.start_point = VectorizedPoint(start)
+        self.end_point = VectorizedPoint(end)
+        self.add(self.start_point, self.end_point)
 
 
 class Cylinder(Surface):
@@ -812,14 +828,11 @@ class Cylinder(Surface):
         self.base_bottom.shift(self.u_range[0] * IN)
         self.add(self.base_top, self.base_bottom)
 
-    def _rotate_to_direction(self):
+    def _rotate_to_direction(self) -> None:
         x, y, z = self.direction
 
         r = np.sqrt(x**2 + y**2 + z**2)
-        if r > 0:
-            theta = np.arccos(z / r)
-        else:
-            theta = 0
+        theta = np.arccos(z / r) if r > 0 else 0
 
         if x == 0:
             if y == 0:  # along the z axis
@@ -882,6 +895,12 @@ class Line3D(Cylinder):
         The thickness of the line.
     color
         The color of the line.
+    resolution
+        The resolution of the line.
+        By default this value is the number of points the line will sampled at.
+        If you want the line to also come out checkered, use a tuple.
+        For example, for a line made of 24 points with 4 checker points on each
+        cylinder, pass the tuple (4, 24).
 
     Examples
     --------
@@ -901,10 +920,12 @@ class Line3D(Cylinder):
         start: np.ndarray = LEFT,
         end: np.ndarray = RIGHT,
         thickness: float = 0.02,
-        color: Color = None,
+        color: ParsableManimColor | None = None,
+        resolution: int | Sequence[int] = 24,
         **kwargs,
     ):
         self.thickness = thickness
+        self.resolution = (2, resolution) if isinstance(resolution, int) else resolution
         self.set_start_and_end_attrs(start, end, **kwargs)
         if color is not None:
             self.set_color(color)
@@ -938,12 +959,15 @@ class Line3D(Cylinder):
             height=np.linalg.norm(self.vect),
             radius=self.thickness,
             direction=self.direction,
+            resolution=self.resolution,
             **kwargs,
         )
         self.shift((self.start + self.end) / 2)
 
     def pointify(
-        self, mob_or_point: Mobject | float, direction: np.ndarray = None
+        self,
+        mob_or_point: Mobject | Point3DLike,
+        direction: Vector3D = None,
     ) -> np.ndarray:
         """Gets a point representing the center of the :class:`Mobjects <.Mobject>`.
 
@@ -989,7 +1013,11 @@ class Line3D(Cylinder):
 
     @classmethod
     def parallel_to(
-        cls, line: Line3D, point: Sequence[float] = ORIGIN, length: float = 5, **kwargs
+        cls,
+        line: Line3D,
+        point: Vector3D = ORIGIN,
+        length: float = 5,
+        **kwargs,
     ) -> Line3D:
         """Returns a line parallel to another line going through
         a given point.
@@ -1033,7 +1061,11 @@ class Line3D(Cylinder):
 
     @classmethod
     def perpendicular_to(
-        cls, line: Line3D, point: Sequence[float] = ORIGIN, length: float = 5, **kwargs
+        cls,
+        line: Line3D,
+        point: Vector3D = ORIGIN,
+        length: float = 5,
+        **kwargs,
     ) -> Line3D:
         """Returns a line perpendicular to another line going through
         a given point.
@@ -1099,6 +1131,8 @@ class Arrow3D(Line3D):
         The base radius of the conical tip.
     color
         The color of the arrow.
+    resolution
+        The resolution of the arrow line.
 
     Examples
     --------
@@ -1124,11 +1158,17 @@ class Arrow3D(Line3D):
         thickness: float = 0.02,
         height: float = 0.3,
         base_radius: float = 0.08,
-        color: Color = WHITE,
+        color: ParsableManimColor = WHITE,
+        resolution: int | Sequence[int] = 24,
         **kwargs,
     ) -> None:
         super().__init__(
-            start=start, end=end, thickness=thickness, color=color, **kwargs
+            start=start,
+            end=end,
+            thickness=thickness,
+            color=color,
+            resolution=resolution,
+            **kwargs,
         )
 
         self.length = np.linalg.norm(self.vect)
@@ -1137,13 +1177,19 @@ class Arrow3D(Line3D):
             self.end - height * self.direction,
             **kwargs,
         )
-
         self.cone = Cone(
-            direction=self.direction, base_radius=base_radius, height=height, **kwargs
+            direction=self.direction,
+            base_radius=base_radius,
+            height=height,
+            **kwargs,
         )
         self.cone.shift(end)
-        self.add(self.cone)
+        self.end_point = VectorizedPoint(end)
+        self.add(self.end_point, self.cone)
         self.set_color(color)
+
+    def get_end(self) -> np.ndarray:
+        return self.end_point.get_center()
 
 
 class Torus(Surface):
@@ -1182,7 +1228,7 @@ class Torus(Surface):
         minor_radius: float = 1,
         u_range: Sequence[float] = (0, TAU),
         v_range: Sequence[float] = (0, TAU),
-        resolution: Sequence[int] = None,
+        resolution: tuple[int, int] | None = None,
         **kwargs,
     ) -> None:
         if config.renderer == RendererType.OPENGL:

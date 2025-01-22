@@ -14,10 +14,9 @@ __all__ = [
     "RightAngle",
 ]
 
-from typing import Any, Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
-from colour import Color
 
 from manim import config
 from manim.constants import *
@@ -27,54 +26,119 @@ from manim.mobject.mobject import Mobject
 from manim.mobject.opengl.opengl_compatibility import ConvertToOpenGL
 from manim.mobject.opengl.opengl_mobject import OpenGLMobject
 from manim.mobject.types.vectorized_mobject import DashedVMobject, VGroup, VMobject
-from manim.utils.color import *
-from manim.utils.color import Colors
+from manim.utils.color import WHITE
 from manim.utils.space_ops import angle_of_vector, line_intersection, normalize
+
+if TYPE_CHECKING:
+    from typing import Any
+
+    from typing_extensions import Literal, Self, TypeAlias
+
+    from manim.typing import Point2DLike, Point3D, Point3DLike, Vector3D
+    from manim.utils.color import ParsableManimColor
+
+    from ..matrix import Matrix  # Avoid circular import
+
+    AngleQuadrant: TypeAlias = tuple[Literal[-1, 1], Literal[-1, 1]]
+    r"""A tuple of 2 integers which can be either +1 or -1, allowing to select
+    one of the 4 quadrants of the Cartesian plane.
+
+    Let :math:`L_1,\ L_2` be two lines defined by start points
+    :math:`S_1,\ S_2` and end points :math:`E_1,\ E_2`. We define the "positive
+    direction" of :math:`L_1` as the direction from :math:`S_1` to :math:`E_1`,
+    and its "negative direction" as the opposite one. We do the same with
+    :math:`L_2`.
+
+    If :math:`L_1` and :math:`L_2` intersect, they divide the plane into 4
+    quadrants. To pick one quadrant, choose the integers in this tuple in the
+    following way:
+
+    -   If the 1st integer is +1, select one of the 2 quadrants towards the
+        positive direction of :math:`L_1`, i.e. closest to `E_1`. Otherwise, if
+        the 1st integer is -1, select one of the 2 quadrants towards the
+        negative direction of :math:`L_1`, i.e. closest to `S_1`.
+
+    -   Similarly, the sign of the 2nd integer picks the positive or negative
+        direction of :math:`L_2` and, thus, selects one of the 2 quadrants
+        which  are closest to :math:`E_2` or :math:`S_2` respectively.
+    """
 
 
 class Line(TipableVMobject):
-    def __init__(self, start=LEFT, end=RIGHT, buff=0, path_arc=None, **kwargs):
+    def __init__(
+        self,
+        start: Point3DLike | Mobject = LEFT,
+        end: Point3DLike | Mobject = RIGHT,
+        buff: float = 0,
+        path_arc: float | None = None,
+        **kwargs: Any,
+    ) -> None:
         self.dim = 3
         self.buff = buff
         self.path_arc = path_arc
         self._set_start_and_end_attrs(start, end)
         super().__init__(**kwargs)
+        # TODO: Deal with the situation where path_arc is None
 
-    def generate_points(self):
+    def generate_points(self) -> None:
         self.set_points_by_ends(
             start=self.start,
             end=self.end,
             buff=self.buff,
-            path_arc=self.path_arc,
+            path_arc=self.path_arc,  # type: ignore[arg-type]
         )
 
-    def set_points_by_ends(self, start, end, buff=0, path_arc=0):
+    def set_points_by_ends(
+        self,
+        start: Point3DLike | Mobject,
+        end: Point3DLike | Mobject,
+        buff: float = 0,
+        path_arc: float = 0,
+    ) -> None:
+        """Sets the points of the line based on its start and end points.
+        Unlike :meth:`put_start_and_end_on`, this method respects `self.buff` and
+        Mobject bounding boxes.
+
+        Parameters
+        ----------
+        start
+            The start point or Mobject of the line.
+        end
+            The end point or Mobject of the line.
+        buff
+            The empty space between the start and end of the line, by default 0.
+        path_arc
+            The angle of a circle spanned by this arc, by default 0 which is a straight line.
+        """
+        self._set_start_and_end_attrs(start, end)
         if path_arc:
+            # self.path_arc could potentially be None, which is not accepted
+            # as parameter.
+            assert self.path_arc is not None
             arc = ArcBetweenPoints(self.start, self.end, angle=self.path_arc)
             self.set_points(arc.points)
         else:
-            self.set_points_as_corners([start, end])
+            self.set_points_as_corners(np.asarray([self.start, self.end]))
 
         self._account_for_buff(buff)
 
     init_points = generate_points
 
-    def _account_for_buff(self, buff):
+    def _account_for_buff(self, buff: float) -> None:
         if buff == 0:
             return
         #
-        if self.path_arc == 0:
-            length = self.get_length()
-        else:
-            length = self.get_arc_length()
+        length = self.get_length() if self.path_arc == 0 else self.get_arc_length()
         #
         if length < 2 * buff:
             return
         buff_proportion = buff / length
         self.pointwise_become_partial(self, buff_proportion, 1 - buff_proportion)
-        return self
+        return
 
-    def _set_start_and_end_attrs(self, start, end):
+    def _set_start_and_end_attrs(
+        self, start: Point3DLike | Mobject, end: Point3DLike | Mobject
+    ) -> None:
         # If either start or end are Mobjects, this
         # gives their centers
         rough_start = self._pointify(start)
@@ -88,9 +152,9 @@ class Line(TipableVMobject):
 
     def _pointify(
         self,
-        mob_or_point: Mobject | Sequence[float],
-        direction: Sequence[float] | None = None,
-    ) -> np.ndarray:
+        mob_or_point: Mobject | Point3DLike,
+        direction: Vector3D | None = None,
+    ) -> Point3D:
         """Transforms a mobject into its corresponding point. Does nothing if a point is passed.
 
         ``direction`` determines the location of the point along its bounding box in that direction.
@@ -110,11 +174,15 @@ class Line(TipableVMobject):
                 return mob.get_boundary_point(direction)
         return np.array(mob_or_point)
 
-    def set_path_arc(self, new_value):
+    def set_path_arc(self, new_value: float) -> None:
         self.path_arc = new_value
         self.init_points()
 
-    def put_start_and_end_on(self, start: Sequence[float], end: Sequence[float]):
+    def put_start_and_end_on(
+        self,
+        start: Point3DLike,
+        end: Point3DLike,
+    ) -> Self:
         """Sets starts and end coordinates of a line.
 
         Examples
@@ -140,21 +208,21 @@ class Line(TipableVMobject):
         if np.all(curr_start == curr_end):
             # TODO, any problems with resetting
             # these attrs?
-            self.start = start
-            self.end = end
+            self.start = np.asarray(start)
+            self.end = np.asarray(end)
             self.generate_points()
         return super().put_start_and_end_on(start, end)
 
-    def get_vector(self):
+    def get_vector(self) -> Vector3D:
         return self.get_end() - self.get_start()
 
-    def get_unit_vector(self):
+    def get_unit_vector(self) -> Vector3D:
         return normalize(self.get_vector())
 
-    def get_angle(self):
+    def get_angle(self) -> float:
         return angle_of_vector(self.get_vector())
 
-    def get_projection(self, point: Sequence[float]) -> Sequence[float]:
+    def get_projection(self, point: Point3DLike) -> Point3D:
         """Returns the projection of a point onto a line.
 
         Parameters
@@ -162,16 +230,15 @@ class Line(TipableVMobject):
         point
             The point to which the line is projected.
         """
-
         start = self.get_start()
         end = self.get_end()
         unit_vect = normalize(end - start)
-        return start + np.dot(point - start, unit_vect) * unit_vect
+        return start + float(np.dot(point - start, unit_vect)) * unit_vect
 
-    def get_slope(self):
-        return np.tan(self.get_angle())
+    def get_slope(self) -> float:
+        return float(np.tan(self.get_angle()))
 
-    def set_angle(self, angle, about_point=None):
+    def set_angle(self, angle: float, about_point: Point3DLike | None = None) -> Self:
         if about_point is None:
             about_point = self.get_start()
 
@@ -182,8 +249,9 @@ class Line(TipableVMobject):
 
         return self
 
-    def set_length(self, length):
-        return self.scale(length / self.get_length())
+    def set_length(self, length: float) -> Self:
+        scale_factor: float = length / self.get_length()
+        return self.scale(scale_factor)
 
 
 class DashedLine(Line):
@@ -225,8 +293,8 @@ class DashedLine(Line):
         *args: Any,
         dash_length: float = DEFAULT_DASH_LENGTH,
         dashed_ratio: float = 0.5,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         self.dash_length = dash_length
         self.dashed_ratio = dashed_ratio
         super().__init__(*args, **kwargs)
@@ -248,14 +316,13 @@ class DashedLine(Line):
             >>> DashedLine()._calculate_num_dashes()
             20
         """
-
         # Minimum number of dashes has to be 2
         return max(
             2,
             int(np.ceil((self.get_length() / self.dash_length) * self.dashed_ratio)),
         )
 
-    def get_start(self) -> np.ndarray:
+    def get_start(self) -> Point3D:
         """Returns the start point of the line.
 
         Examples
@@ -265,13 +332,12 @@ class DashedLine(Line):
             >>> DashedLine().get_start()
             array([-1.,  0.,  0.])
         """
-
         if len(self.submobjects) > 0:
             return self.submobjects[0].get_start()
         else:
             return super().get_start()
 
-    def get_end(self) -> np.ndarray:
+    def get_end(self) -> Point3D:
         """Returns the end point of the line.
 
         Examples
@@ -281,13 +347,12 @@ class DashedLine(Line):
             >>> DashedLine().get_end()
             array([1., 0., 0.])
         """
-
         if len(self.submobjects) > 0:
             return self.submobjects[-1].get_end()
         else:
             return super().get_end()
 
-    def get_first_handle(self) -> np.ndarray:
+    def get_first_handle(self) -> Point3D:
         """Returns the point of the first handle.
 
         Examples
@@ -297,10 +362,13 @@ class DashedLine(Line):
             >>> DashedLine().get_first_handle()
             array([-0.98333333,  0.        ,  0.        ])
         """
+        # Type inference of extracting an element from a list, is not
+        # supported by numpy, see this numpy issue
+        # https://github.com/numpy/numpy/issues/16544
+        first_handle: Point3D = self.submobjects[0].points[1]
+        return first_handle
 
-        return self.submobjects[0].points[1]
-
-    def get_last_handle(self) -> np.ndarray:
+    def get_last_handle(self) -> Point3D:
         """Returns the point of the last handle.
 
         Examples
@@ -310,8 +378,11 @@ class DashedLine(Line):
             >>> DashedLine().get_last_handle()
             array([0.98333333, 0.        , 0.        ])
         """
-
-        return self.submobjects[-1].points[-2]
+        # Type inference of extracting an element from a list, is not
+        # supported by numpy, see this numpy issue
+        # https://github.com/numpy/numpy/issues/16544
+        last_handle: Point3D = self.submobjects[-1].points[2]
+        return last_handle
 
 
 class TangentLine(Line):
@@ -353,8 +424,8 @@ class TangentLine(Line):
         alpha: float,
         length: float = 1,
         d_alpha: float = 1e-6,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         self.length = length
         self.d_alpha = d_alpha
         da = self.d_alpha
@@ -396,10 +467,10 @@ class Elbow(VMobject, metaclass=ConvertToOpenGL):
                 self.add(elbow_group)
     """
 
-    def __init__(self, width: float = 0.2, angle: float = 0, **kwargs):
+    def __init__(self, width: float = 0.2, angle: float = 0, **kwargs: Any) -> None:
         self.angle = angle
         super().__init__(**kwargs)
-        self.set_points_as_corners([UP, UP + RIGHT, RIGHT])
+        self.set_points_as_corners(np.array([UP, UP + RIGHT, RIGHT]))
         self.scale_to_fit_width(width, about_point=ORIGIN)
         self.rotate(self.angle, about_point=ORIGIN)
 
@@ -499,19 +570,19 @@ class Arrow(Line):
         buff: float = MED_SMALL_BUFF,
         max_tip_length_to_length_ratio: float = 0.25,
         max_stroke_width_to_length_ratio: float = 5,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         self.max_tip_length_to_length_ratio = max_tip_length_to_length_ratio
         self.max_stroke_width_to_length_ratio = max_stroke_width_to_length_ratio
         tip_shape = kwargs.pop("tip_shape", ArrowTriangleFilledTip)
-        super().__init__(*args, buff=buff, stroke_width=stroke_width, **kwargs)
+        super().__init__(*args, buff=buff, stroke_width=stroke_width, **kwargs)  # type: ignore[misc]
         # TODO, should this be affected when
         # Arrow.set_stroke is called?
         self.initial_stroke_width = self.stroke_width
         self.add_tip(tip_shape=tip_shape)
         self._set_stroke_width_from_length()
 
-    def scale(self, factor, scale_tips=False, **kwargs):
+    def scale(self, factor: float, scale_tips: bool = False, **kwargs: Any) -> Self:  # type: ignore[override]
         r"""Scale an arrow, but keep stroke width and arrow tip size fixed.
 
 
@@ -561,7 +632,7 @@ class Arrow(Line):
             self.add_tip(tip=old_tips[1], at_start=True)
         return self
 
-    def get_normal_vector(self) -> np.ndarray:
+    def get_normal_vector(self) -> Vector3D:
         """Returns the normal of a vector.
 
         Examples
@@ -571,11 +642,10 @@ class Arrow(Line):
             >>> np.round(Arrow().get_normal_vector()) + 0. # add 0. to avoid negative 0 in output
             array([ 0.,  0., -1.])
         """
-
         p0, p1, p2 = self.tip.get_start_anchors()[:3]
         return normalize(np.cross(p2 - p1, p1 - p0))
 
-    def reset_normal_vector(self):
+    def reset_normal_vector(self) -> Self:
         """Resets the normal of a vector"""
         self.normal_vector = self.get_normal_vector()
         return self
@@ -591,15 +661,18 @@ class Arrow(Line):
             >>> Arrow().get_default_tip_length()
             0.35
         """
-
         max_ratio = self.max_tip_length_to_length_ratio
         return min(self.tip_length, max_ratio * self.get_length())
 
-    def _set_stroke_width_from_length(self):
+    def _set_stroke_width_from_length(self) -> Self:
         """Sets stroke width based on length."""
         max_ratio = self.max_stroke_width_to_length_ratio
         if config.renderer == RendererType.OPENGL:
-            self.set_stroke(
+            # Mypy does not recognize that the self object in this case
+            # is a OpenGLVMobject and that the set_stroke method is
+            # defined here:
+            # mobject/opengl/opengl_vectorized_mobject.py#L248
+            self.set_stroke(  # type: ignore[call-arg]
                 width=min(self.initial_stroke_width, max_ratio * self.get_length()),
                 recurse=False,
             )
@@ -613,6 +686,11 @@ class Arrow(Line):
 
 class Vector(Arrow):
     """A vector specialized for use in graphs.
+
+    .. caution::
+        Do not confuse with the :class:`~.Vector2D`,
+        :class:`~.Vector3D` or :class:`~.VectorND` type aliases,
+        which are not Mobjects!
 
     Parameters
     ----------
@@ -636,7 +714,12 @@ class Vector(Arrow):
                 self.add(plane, vector_1, vector_2)
     """
 
-    def __init__(self, direction: list | np.ndarray = RIGHT, buff: float = 0, **kwargs):
+    def __init__(
+        self,
+        direction: Point2DLike | Point3DLike = RIGHT,
+        buff: float = 0,
+        **kwargs: Any,
+    ) -> None:
         self.buff = buff
         if len(direction) == 2:
             direction = np.hstack([direction, 0])
@@ -647,9 +730,9 @@ class Vector(Arrow):
         self,
         integer_labels: bool = True,
         n_dim: int = 2,
-        color: Color | None = None,
-        **kwargs,
-    ):
+        color: ParsableManimColor | None = None,
+        **kwargs: Any,
+    ) -> Matrix:
         """Creates a label based on the coordinates of the vector.
 
         Parameters
@@ -684,7 +767,6 @@ class Vector(Arrow):
 
                     self.add(plane, vec_1, vec_2, label_1, label_2)
         """
-
         # avoiding circular imports
         from ..matrix import Matrix
 
@@ -752,7 +834,7 @@ class DoubleArrow(Arrow):
                 self.add(box, d1, d2, d3)
     """
 
-    def __init__(self, *args: Any, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         if "tip_shape_end" in kwargs:
             kwargs["tip_shape"] = kwargs.pop("tip_shape_end")
         tip_shape_start = kwargs.pop("tip_shape_start", ArrowTriangleFilledTip)
@@ -873,16 +955,16 @@ class Angle(VMobject, metaclass=ConvertToOpenGL):
         self,
         line1: Line,
         line2: Line,
-        radius: float = None,
-        quadrant: Sequence[int] = (1, 1),
+        radius: float | None = None,
+        quadrant: AngleQuadrant = (1, 1),
         other_angle: bool = False,
         dot: bool = False,
         dot_radius: float | None = None,
         dot_distance: float = 0.55,
-        dot_color: Colors = WHITE,
+        dot_color: ParsableManimColor = WHITE,
         elbow: bool = False,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         super().__init__(**kwargs)
         self.lines = (line1, line2)
         self.quadrant = quadrant
@@ -918,9 +1000,9 @@ class Angle(VMobject, metaclass=ConvertToOpenGL):
                 + quadrant[0] * radius * line1.get_unit_vector()
                 + quadrant[1] * radius * line2.get_unit_vector()
             )
-            angle_mobject = Elbow(**kwargs)
+            angle_mobject: VMobject = Elbow(**kwargs)
             angle_mobject.set_points_as_corners(
-                [anchor_angle_1, anchor_middle, anchor_angle_2],
+                np.array([anchor_angle_1, anchor_middle, anchor_angle_2]),
             )
         else:
             angle_1 = angle_of_vector(anchor_angle_1 - inter)
@@ -984,11 +1066,10 @@ class Angle(VMobject, metaclass=ConvertToOpenGL):
             >>> angle.get_lines()
             VGroup(Line, Line)
         """
-
         return VGroup(*self.lines)
 
     def get_value(self, degrees: bool = False) -> float:
-        """Get the value of an angle of the :class:`Angle` class.
+        r"""Get the value of an angle of the :class:`Angle` class.
 
         Parameters
         ----------
@@ -1013,21 +1094,18 @@ class Angle(VMobject, metaclass=ConvertToOpenGL):
 
                     angle = Angle(line1, line2, radius=0.4)
 
-                    value = DecimalNumber(angle.get_value(degrees=True), unit="^{\\circ}")
+                    value = DecimalNumber(angle.get_value(degrees=True), unit=r"^{\circ}")
                     value.next_to(angle, UR)
 
                     self.add(line1, line2, angle, value)
         """
-
-        if degrees:
-            return self.angle_value / DEGREES
-        return self.angle_value
+        return self.angle_value / DEGREES if degrees else self.angle_value
 
     @staticmethod
     def from_three_points(
-        A: np.ndarray, B: np.ndarray, C: np.ndarray, **kwargs
+        A: Point3DLike, B: Point3DLike, C: Point3DLike, **kwargs: Any
     ) -> Angle:
-        """The angle between the lines AB and BC.
+        r"""The angle between the lines AB and BC.
 
         This constructs the angle :math:`\\angle ABC`.
 
@@ -1101,5 +1179,11 @@ class RightAngle(Angle):
                 self.add(plots)
     """
 
-    def __init__(self, line1: Line, line2: Line, length: float | None = None, **kwargs):
+    def __init__(
+        self,
+        line1: Line,
+        line2: Line,
+        length: float | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(line1, line2, radius=length, elbow=True, **kwargs)

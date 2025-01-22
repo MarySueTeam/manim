@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import manim
+from manim.utils.docbuild.module_parsing import parse_module_attributes
 
 # -- Path setup --------------------------------------------------------------
 # If extensions (or modules to document with autodoc) are in another directory,
@@ -24,7 +26,7 @@ sys.path.insert(0, os.path.abspath("."))
 # -- Project information -----------------------------------------------------
 
 project = "Manim"
-copyright = "2020-2022, The Manim Community Dev Team"
+copyright = f"2020-{datetime.now().year}, The Manim Community Dev Team"  # noqa: A001
 author = "The Manim Community Dev Team"
 
 
@@ -43,17 +45,37 @@ extensions = [
     "sphinx.ext.viewcode",
     "sphinxext.opengraph",
     "manim.utils.docbuild.manim_directive",
+    "manim.utils.docbuild.autocolor_directive",
+    "manim.utils.docbuild.autoaliasattr_directive",
     "sphinx.ext.graphviz",
     "sphinx.ext.inheritance_diagram",
     "sphinxcontrib.programoutput",
     "myst_parser",
+    "sphinx_design",
+    "sphinx_reredirects",
 ]
 
 # Automatically generate stub pages when using the .. autosummary directive
 autosummary_generate = True
 
+myst_enable_extensions = ["colon_fence", "amsmath"]
+
+# redirects (for moved / deleted pages)
+redirects = {
+    "installation/linux": "uv.html",
+    "installation/macos": "uv.html",
+    "installation/windows": "uv.html",
+}
+
 # generate documentation from type hints
+ALIAS_DOCS_DICT = parse_module_attributes()[0]
 autodoc_typehints = "description"
+autodoc_type_aliases = {
+    alias_name: f"~manim.{module}.{alias_name}"
+    for module, module_dict in ALIAS_DOCS_DICT.items()
+    for category_dict in module_dict.values()
+    for alias_name in category_dict
+}
 autoclass_content = "both"
 
 # controls whether functions documented by the autofunction directive
@@ -171,8 +193,6 @@ inheritance_edge_attrs = {
     "penwidth": 1,
 }
 
-html_js_files = [
-    "responsiveSvg.js",
-]
+html_js_files = ["responsiveSvg.js"]
 
 graphviz_output_format = "svg"

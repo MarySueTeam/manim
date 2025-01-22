@@ -12,6 +12,8 @@ r"""Mobjects representing text rendered using LaTeX.
 
 from __future__ import annotations
 
+from manim.utils.color import BLACK, ManimColor, ParsableManimColor
+
 __all__ = [
     "SingleStringMathTex",
     "MathTex",
@@ -24,21 +26,17 @@ __all__ = [
 import itertools as it
 import operator as op
 import re
+from collections.abc import Iterable
 from functools import reduce
 from textwrap import dedent
-from typing import Dict, Iterable, Optional
-
-from colour import Color
 
 from manim import config, logger
 from manim.constants import *
 from manim.mobject.geometry.line import Line
 from manim.mobject.svg.svg_mobject import SVGMobject
-from manim.mobject.types.vectorized_mobject import VectorizedPoint, VGroup, VMobject
+from manim.mobject.types.vectorized_mobject import VGroup, VMobject
 from manim.utils.tex import TexTemplate
 from manim.utils.tex_file_writing import tex_to_svg_file
-
-SCALE_FACTOR_PER_FONT_POINT = 1 / 960
 
 tex_string_to_mob_map = {}
 
@@ -64,12 +62,11 @@ class SingleStringMathTex(SVGMobject):
         tex_environment: str = "align*",
         tex_template: TexTemplate | None = None,
         font_size: float = DEFAULT_FONT_SIZE,
+        color: ParsableManimColor | None = None,
         **kwargs,
     ):
-        if kwargs.get("color") is None:
-            # makes it so that color isn't explicitly passed for these mobs,
-            # and can instead inherit from the parent
-            kwargs["color"] = VMobject().color
+        if color is None:
+            color = VMobject().color
 
         self._font_size = font_size
         self.organize_left_to_right = organize_left_to_right
@@ -90,6 +87,7 @@ class SingleStringMathTex(SVGMobject):
             should_center=should_center,
             stroke_width=stroke_width,
             height=height,
+            color=color,
             path_string_config={
                 "should_subdivide_sharp_curves": True,
                 "should_remove_null_curves": True,
@@ -177,8 +175,8 @@ class SingleStringMathTex(SVGMobject):
         tex = self._remove_stray_braces(tex)
 
         for context in ["array"]:
-            begin_in = ("\\begin{%s}" % context) in tex
-            end_in = ("\\end{%s}" % context) in tex
+            begin_in = ("\\begin{%s}" % context) in tex  # noqa: UP031
+            end_in = ("\\end{%s}" % context) in tex  # noqa: UP031
             if begin_in ^ end_in:
                 # Just turn this into a blank string,
                 # which means caller should leave a
@@ -193,7 +191,6 @@ class SingleStringMathTex(SVGMobject):
         This is important when the braces in the TeX code are spread over
         multiple arguments as in, e.g., ``MathTex(r"e^{i", r"\tau} = 1")``.
         """
-
         # "\{" does not count (it's a brace literal), but "\\{" counts (it's a new line and then brace)
         num_lefts = tex.count("{") - tex.count("\\{") + tex.count("\\\\{")
         num_rights = tex.count("}") - tex.count("\\}") + tex.count("\\\\}")
@@ -213,10 +210,16 @@ class SingleStringMathTex(SVGMobject):
         return self.tex_string
 
     def init_colors(self, propagate_colors=True):
-        if config.renderer == RendererType.OPENGL:
-            super().init_colors()
-        elif config.renderer == RendererType.CAIRO:
-            super().init_colors(propagate_colors=propagate_colors)
+        for submobject in self.submobjects:
+            # needed to preserve original (non-black)
+            # TeX colors of individual submobjects
+            if submobject.color != BLACK:
+                continue
+            submobject.color = self.color
+            if config.renderer == RendererType.OPENGL:
+                submobject.init_colors()
+            elif config.renderer == RendererType.CAIRO:
+                submobject.init_colors(propagate_colors=propagate_colors)
 
 
 class MathTex(SingleStringMathTex):
@@ -255,7 +258,7 @@ class MathTex(SingleStringMathTex):
         *tex_strings,
         arg_separator: str = " ",
         substrings_to_isolate: Iterable[str] | None = None,
-        tex_to_color_map: dict[str, Color] = None,
+        tex_to_color_map: dict[str, ManimColor] = None,
         tex_environment: str = "align*",
         **kwargs,
     ):
@@ -346,10 +349,6 @@ class MathTex(SingleStringMathTex):
                 curr_index + num_submobs + len("".join(self.arg_separator.split()))
             )
             if num_submobs == 0:
-                # For cases like empty tex_strings, we want the corresponding
-                # part of the whole MathTex to be a VectorizedPoint
-                # positioned in the right part of the MathTex
-                sub_tex_mob.submobjects = [VectorizedPoint()]
                 last_submob_index = min(curr_index, len(self.submobjects) - 1)
                 sub_tex_mob.move_to(self.submobjects[last_submob_index], RIGHT)
             else:
@@ -432,6 +431,10 @@ class MathTex(SingleStringMathTex):
 
 class Tex(MathTex):
     r"""A string compiled with LaTeX in normal mode.
+
+    The color can be set using
+    the ``color`` argument. Any parts of the ``tex_string`` that are colored by the
+    TeX commands ``\color`` or ``\textcolor`` will retain their original color.
 
     Tests
     -----

@@ -10,11 +10,11 @@ __all__ = [
 
 import itertools as it
 import random
+from collections.abc import Iterable, Sequence
 from math import ceil, floor
-from typing import Callable, Iterable, Sequence
+from typing import Callable
 
 import numpy as np
-from colour import Color
 from PIL import Image
 
 from manim.animation.updaters.update import UpdateFromAlphaFunc
@@ -30,7 +30,16 @@ from ..mobject.mobject import Mobject
 from ..mobject.types.vectorized_mobject import VGroup
 from ..mobject.utils import get_vectorized_mobject_class
 from ..utils.bezier import interpolate, inverse_interpolate
-from ..utils.color import BLUE_E, GREEN, RED, YELLOW, color_to_rgb, rgb_to_color
+from ..utils.color import (
+    BLUE_E,
+    GREEN,
+    RED,
+    YELLOW,
+    ManimColor,
+    ParsableManimColor,
+    color_to_rgb,
+    rgb_to_color,
+)
 from ..utils.rate_functions import ease_out_sine, linear
 from ..utils.simple_functions import sigmoid
 
@@ -66,11 +75,11 @@ class VectorField(VGroup):
     def __init__(
         self,
         func: Callable[[np.ndarray], np.ndarray],
-        color: Color | None = None,
+        color: ParsableManimColor | None = None,
         color_scheme: Callable[[np.ndarray], float] | None = None,
         min_color_scheme_value: float = 0,
         max_color_scheme_value: float = 2,
-        colors: Sequence[Color] = DEFAULT_SCALAR_FIELD_COLORS,
+        colors: Sequence[ParsableManimColor] = DEFAULT_SCALAR_FIELD_COLORS,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -107,7 +116,7 @@ class VectorField(VGroup):
             self.pos_to_color = lambda pos: rgb_to_color(self.pos_to_rgb(pos))
         else:
             self.single_color = True
-            self.color = color
+            self.color = ManimColor.parse(color)
         self.submob_movement_updater = None
 
     @staticmethod
@@ -344,7 +353,6 @@ class VectorField(VGroup):
             This vector field.
 
         """
-
         self.stop_submobject_movement()
         self.submob_movement_updater = lambda mob, dt: mob.nudge_submobjects(
             dt * speed,
@@ -409,7 +417,7 @@ class VectorField(VGroup):
         self,
         start: float,
         end: float,
-        colors: Iterable,
+        colors: Iterable[ParsableManimColor],
     ):
         """
         Generates a gradient of rgbas as a numpy array
@@ -533,11 +541,11 @@ class ArrowVectorField(VectorField):
     def __init__(
         self,
         func: Callable[[np.ndarray], np.ndarray],
-        color: Color | None = None,
+        color: ParsableManimColor | None = None,
         color_scheme: Callable[[np.ndarray], float] | None = None,
         min_color_scheme_value: float = 0,
         max_color_scheme_value: float = 2,
-        colors: Sequence[Color] = DEFAULT_SCALAR_FIELD_COLORS,
+        colors: Sequence[ParsableManimColor] = DEFAULT_SCALAR_FIELD_COLORS,
         # Determining Vector positions:
         x_range: Sequence[float] = None,
         y_range: Sequence[float] = None,
@@ -613,7 +621,7 @@ class ArrowVectorField(VectorField):
             The root point of the vector.
 
         """
-        output = np.asarray(self.func(point))
+        output = np.array(self.func(point))
         norm = np.linalg.norm(output)
         if norm != 0:
             output *= self.length_func(norm) / norm
@@ -707,11 +715,11 @@ class StreamLines(VectorField):
     def __init__(
         self,
         func: Callable[[np.ndarray], np.ndarray],
-        color: Color | None = None,
+        color: ParsableManimColor | None = None,
         color_scheme: Callable[[np.ndarray], float] | None = None,
         min_color_scheme_value: float = 0,
         max_color_scheme_value: float = 2,
-        colors: Sequence[Color] = DEFAULT_SCALAR_FIELD_COLORS,
+        colors: Sequence[ParsableManimColor] = DEFAULT_SCALAR_FIELD_COLORS,
         # Determining stream line starting positions:
         x_range: Sequence[float] = None,
         y_range: Sequence[float] = None,
@@ -821,7 +829,9 @@ class StreamLines(VectorField):
             step = max(1, int(len(points) / self.max_anchors_per_line))
             line.set_points_smoothly(points[::step])
             if self.single_color:
-                line.set_stroke(self.color)
+                line.set_stroke(
+                    color=self.color, width=self.stroke_width, opacity=opacity
+                )
             else:
                 if config.renderer == RendererType.OPENGL:
                     # scaled for compatibility with cairo
@@ -940,7 +950,6 @@ class StreamLines(VectorField):
                     self.wait(stream_lines.virtual_time / stream_lines.flow_speed)
 
         """
-
         for line in self.stream_lines:
             run_time = line.duration / flow_speed
             line.anim = line_animation_class(
@@ -1000,7 +1009,6 @@ class StreamLines(VectorField):
                     self.play(stream_lines.end_animation())
 
         """
-
         if self.flow_animation is None:
             raise ValueError("You have to start the animation before fading it out.")
 
